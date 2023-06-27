@@ -1,0 +1,659 @@
+Авторизация
+using System;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Navigation;
+using Autoservice.Entities;
+
+namespace Autoservice.Pages
+{
+    /// <summary>
+    /// Логика взаимодействия для Authorization.xaml
+    /// </summary>
+    public partial class Authorization : Page
+    {
+        private int countUnsuccessful = 0;
+
+        public Authorization()
+        {
+            InitializeComponent();
+
+            txtCaptcha.Visibility = Visibility.Hidden;
+            txtBlockCaptcha.Visibility = Visibility.Hidden;
+            txtCountdown.Visibility = Visibility.Hidden;
+            txtBlockMessage.Visibility = Visibility.Hidden;
+        }
+
+        private void btnEnterGuest_Click(object sender, RoutedEventArgs e)
+        {
+            NavigationService.Navigate(new Client(null));
+        }
+
+        private void btnEnter_Click(object sender, RoutedEventArgs e)
+        {
+            string login = txtLogin.Text.Trim();
+            string password = txtPassword.Password.Trim();
+
+            User user = Entities.Entities.GetContext().User.Where(p => p.UserLogin == login && p.UserPassword == password).FirstOrDefault();
+            if (txtCaptcha.Visibility != Visibility.Visible)
+            {
+                if (countUnsuccessful < 1)
+                {
+                    if (user != null)
+                    {
+                        MessageBox.Show("Вы вошли под " + user.Role.RoleName.ToString());
+                        LoadForm(user.Role.RoleName.ToString(), user);
+                    }
+                    else
+                    {
+                        MessageBox.Show("Неверо введён логин или пароль!");
+                        txtPassword.Password = "";
+                        GenerateCaptcha();
+                    }
+                }
+            }
+            else
+            {
+                if(txtCaptcha.Text != txtBlockCaptcha.Text)
+                {
+                    MessageBox.Show("Неверо введа CAPTCHA! Возможность входа заблокированна на 10 секунд.");
+                    txtCaptcha.Visibility = Visibility.Hidden;
+                    txtBlockCaptcha.Visibility = Visibility.Hidden;
+                    txtPassword.Password = "";
+                    txtBlockCaptcha.Text = "";
+                    AuthorizationBlock();
+                }
+                else
+                {
+                    if (user != null)
+                    {
+                        MessageBox.Show("Вы вошли под " + user.Role.RoleName.ToString());
+                        LoadForm(user.Role.RoleName.ToString(), user);
+                    }
+                    else
+                    {
+                        MessageBox.Show("Неверо введён логин или пароль! Возможность входа заблокированна на 10 секунд.");
+                        txtCaptcha.Visibility = Visibility.Hidden;
+                        txtBlockCaptcha.Visibility = Visibility.Hidden;
+                        txtPassword.Password = "";
+                        txtBlockCaptcha.Text = "";
+                        AuthorizationBlock();
+                    }
+                }
+            }
+        }
+
+        private void GenerateCaptcha()
+        {
+            txtCaptcha.Visibility = Visibility.Visible;
+            txtBlockCaptcha.Visibility = Visibility.Visible;
+
+            string captcha = "";
+            Random rng = new Random();
+            char[] letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".ToCharArray();
+            for (int i = 0; i <= rng.Next(5, 11); i++)
+            {
+                captcha += letters[rng.Next(0, 62)];
+            }
+            txtBlockCaptcha.Text = captcha;
+            txtBlockCaptcha.TextDecorations = TextDecorations.Strikethrough;
+        }
+
+        private void AuthorizationBlock()
+        {
+            stackAutho.IsEnabled = false;
+            txtCountdown.Visibility = Visibility.Visible;
+            txtBlockMessage.Visibility = Visibility.Visible;
+            Countdown(10, TimeSpan.FromSeconds(1), cur => txtCountdown.Text = cur.ToString());
+        }
+
+        void Countdown(int count, TimeSpan interval, Action<int> ts)
+        {
+            var dt = new System.Windows.Threading.DispatcherTimer();
+            dt.Interval = interval;
+            dt.Tick += (_, a) =>
+            {
+                if (count-- == 1)
+                {
+                    dt.Stop();
+                    stackAutho.IsEnabled = true;
+                    txtCountdown.Visibility = Visibility.Hidden;
+                    txtBlockMessage.Visibility = Visibility.Hidden;
+                }
+                else
+                    ts(count);
+            };
+            ts(count);
+            dt.Start();
+        }
+
+        private void LoadForm(string _role, User user)
+        {
+            switch (_role)
+            {
+                case "Клиент":
+                    NavigationService.Navigate(new Client(user));
+                    break;
+                case "Менеджер":
+                    NavigationService.Navigate(new Client(user));
+                    break;
+                case "Администратор":
+                    NavigationService.Navigate(new Admin(user));
+                    break;
+            }
+        }
+    }
+}
+Клиент
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Navigation;
+using System.Windows.Shapes;
+using Autoservice.Entities;
+using Autoservice.Windows;
+
+namespace Autoservice.Pages
+{
+    /// <summary>
+    /// Логика взаимодействия для Client.xaml
+    /// </summary>
+    public partial class Client : Page
+    {
+        User user = new User();
+        public Client(User currentUser)
+        {
+            InitializeComponent();
+
+            var product = Entities.Entities.GetContext().Product.ToList();
+            LViewProduct.ItemsSource = product;
+            DataContext = this;
+
+            txtAllAmount.Text = product.Count().ToString();
+
+            user = currentUser;
+
+            UpdateData();
+            User();
+        }
+
+        private void User()
+        {
+            if (user != null)
+                txtFullname.Text = user.UserSurname.ToString() + user.UserName.ToString() + " " + user.UserPatronymic.ToString();
+            else
+                txtFullname.Text = "Гость";
+        }
+
+        public string[] SortingList { get; set; } =
+        {
+            "Без сортировки",
+            "Стоимость по возрастанию",
+            "Стоимость по убыванию"
+        };
+        public string[] FilterList { get; set; } =
+        {
+            "Все диапазоны",
+            "0%-9,99%",
+            "10%-14,99%",
+            "15% и более"
+        };
+        private void UpdateData()
+        {
+            var result = Entities.Entities.GetContext().Product.ToList();
+
+            if (cmbSorting.SelectedIndex == 1)
+                result = result.OrderBy(p => p.ProductCost).ToList();
+            if (cmbSorting.SelectedIndex == 2)
+                result = result.OrderByDescending(p => p.ProductCost).ToList();
+
+            if (cmbFilter.SelectedIndex == 1)
+                result = result.Where(p => p.ProductDiscountAmount >= 0 && p.ProductDiscountAmount < 10).ToList();
+            if (cmbFilter.SelectedIndex == 2)
+                result = result.Where(p => p.ProductDiscountAmount >= 10 && p.ProductDiscountAmount < 15).ToList();
+            if (cmbFilter.SelectedIndex == 3)
+                result = result.Where(p => p.ProductDiscountAmount >= 15).ToList();
+
+            result = result.Where(p => p.ProductName.ToLower().Contains(txtSearch.Text.ToLower())).ToList();
+            LViewProduct.ItemsSource = result;
+        }
+
+        private void cmbSorting_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            UpdateData();
+        }
+
+        private void cmbFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            UpdateData();
+        }
+
+        private void txtSearch_SelectionChanged(object sender, RoutedEventArgs e)
+        {
+            UpdateData();
+        }
+
+        List<Product> orderProducts = new List<Product>();
+        private void btnAddProduct_Click(object sender, RoutedEventArgs e)
+        {
+            orderProducts.Add(LViewProduct.SelectedItem as Product);
+
+            if (orderProducts.Count > 0)
+            {
+                btnOrder.Visibility = Visibility.Visible;
+            }
+        }
+
+        private void btnOrder_Click(object sender, RoutedEventArgs e)
+        {
+            OrderWindow order = new OrderWindow(orderProducts, user);
+            order.ShowDialog();
+        }
+    }
+}
+Главное Окно
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Navigation;
+using System.Windows.Shapes;
+using Autoservice.Pages;
+
+namespace Autoservice
+{
+    /// <summary>
+    /// Логика взаимодействия для MainWindow.xaml
+    /// </summary>
+    public partial class MainWindow : Window
+    {
+        public MainWindow()
+        {
+            InitializeComponent();
+            FrmMain.Navigate(new Authorization());
+        }
+
+        private void FrmMain_ContentRendered(object sender, EventArgs e)
+        {
+            if (FrmMain.CanGoBack)
+            {
+                btnBack.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                btnBack.Visibility = Visibility.Hidden;
+            }
+        }
+
+        private void btnBack_Click(object sender, RoutedEventArgs e)
+        {
+            FrmMain.GoBack();
+        }
+    }
+}
+Администратор
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+using Autoservice.Entities;
+using Autoservice.Windows;
+using Autoservice.Pages;
+
+namespace Autoservice.Pages
+{
+    /// <summary>
+    /// Логика взаимодействия для Admin.xaml
+    /// </summary>
+    public partial class Admin : Page
+    {
+        User user = new User();
+        public Client(User currentUser)
+        {
+            InitializeComponent();
+
+            var product = Entities.Entities.GetContext().Product.ToList();
+            LViewProduct.ItemsSource = product;
+            DataContext = this;
+
+            txtAllAmount.Text = product.Count().ToString();
+
+            user = currentUser;
+
+            UpdateData();
+            User();
+        }
+
+        private void User()
+        {
+            if (user != null)
+                txtFullname.Text = user.UserSurname.ToString() + user.UserName.ToString() + " " + user.UserPatronymic.ToString();
+            else
+                txtFullname.Text = "Гость";
+        }
+
+        public string[] SortingList { get; set; } =
+        {
+            "Без сортировки",
+            "Стоимость по возрастанию",
+            "Стоимость по убыванию"
+        };
+        public string[] FilterList { get; set; } =
+        {
+            "Все диапазоны",
+            "0%-9,99%",
+            "10%-14,99%",
+            "15% и более"
+        };
+        private void UpdateData()
+        {
+            var result = Entities.Entities.GetContext().Product.ToList();
+
+            if (cmbSorting.SelectedIndex == 1)
+                result = result.OrderBy(p => p.ProductCost).ToList();
+            if (cmbSorting.SelectedIndex == 2)
+                result = result.OrderByDescending(p => p.ProductCost).ToList();
+
+            if (cmbFilter.SelectedIndex == 1)
+                result = result.Where(p => p.ProductDiscountAmount >= 0 && p.ProductDiscountAmount < 10).ToList();
+            if (cmbFilter.SelectedIndex == 2)
+                result = result.Where(p => p.ProductDiscountAmount >= 10 && p.ProductDiscountAmount < 15).ToList();
+            if (cmbFilter.SelectedIndex == 3)
+                result = result.Where(p => p.ProductDiscountAmount >= 15).ToList();
+
+            result = result.Where(p => p.ProductName.ToLower().Contains(txtSearch.Text.ToLower())).ToList();
+            LViewProduct.ItemsSource = result;
+        }
+
+        private void cmbSorting_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            UpdateData();
+        }
+
+        private void cmbFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            UpdateData();
+        }
+
+        private void txtSearch_SelectionChanged(object sender, RoutedEventArgs e)
+        {
+            UpdateData();
+        }
+
+        List<Product> orderProducts = new List<Product>();
+        private void btnAddProduct_Click(object sender, RoutedEventArgs e)
+        {
+            orderProducts.Add(LViewProduct.SelectedItem as Product);
+
+            if (orderProducts.Count > 0)
+            {
+                btnOrder.Visibility = Visibility.Visible;
+            }
+        }
+
+        private void btnOrder_Click(object sender, RoutedEventArgs e)
+        {
+            OrderWindow order = new OrderWindow(orderProducts, user);
+            order.ShowDialog();
+        }
+
+        private void btnAddNewProduct_Click(object sender, RoutedEventArgs e)
+        {
+            NavigationService.Navigate(new AddEditProductPage(null));
+        }
+
+        private void LViewProduct_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            NavigationService.Navigate(new AddEditProductPage(LViewProduct.SelectedItem as Product));
+        }
+    }
+}
+Редактирование
+<Page x:Class="AutoserviceRul.Pages.AddEditProductPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+      xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+      xmlns:local="clr-namespace:AutoserviceRul.Pages" xmlns:sys="clr-namespace:System;assembly=mscorlib"
+      mc:Ignorable="d" 
+      d:DesignHeight="450" d:DesignWidth="800"
+      Title="AddEditProductPage">
+
+    <Page.Resources>
+        <sys:String x:Key="defaultImage">
+            pack://application:,,,/Resources/picture.png
+        </sys:String>
+    </Page.Resources>
+
+    <ScrollViewer>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="200"/>
+                <ColumnDefinition />
+                <ColumnDefinition Width="200"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="1">
+                <TextBlock Text="Артикул:"/>
+                <TextBox Name="txtArticle" Text="{Binding ProductArticleNumber}"/>
+
+                <TextBlock Text="Наименование:"/>
+                <TextBox Name="txtTitle" Text="{Binding ProductName}"/>
+
+                <TextBlock Text="Категория:"/>
+                <ComboBox Name="cmbCategory" SelectedItem="{Binding ProductCategory}"/>
+
+                <TextBlock Text="Количество на складе:"/>
+                <TextBox Name="txtCountInStock" Text="{Binding ProductQuantityInStock}"/>
+
+                <TextBlock Text="Единица измерения:"/>
+                <TextBox Name="txtUnit" Text="{Binding Unit}"/>
+
+                <TextBlock Text="Количество в упаковке:"/>
+                <TextBox Name="txtCountInPack" Text="{Binding CountInPack}"/>
+
+                <TextBlock Text="Минимальное количество:"/>
+                <TextBox Name="txtMinCount" Text="{Binding MinCount}"/>
+
+                <TextBlock Text="Поставщик:"/>
+                <TextBox Name="txtSupplier" Text="{Binding Supplier}"/>
+
+                <TextBlock Text="Размер максимальной скидки:"/>
+                <TextBox Name="txtMaxDicount" Text="{Binding MaxDiscountAmount}"/>
+
+                <TextBlock Text="Размер действующей скидки:"/>
+                <TextBox Name="txtDiscount" Text="{Binding ProductDiscountAmount}"/>
+
+                <TextBlock Text="Стоимость за единицу:"/>
+                <TextBox Name="txtCost" Text="{Binding ProductCost}"/>
+
+                <StackPanel Orientation="Horizontal">
+                    <StackPanel>
+                        <Image x:Name="img" Width="100" Height="100" Source="{Binding ImgPath, FallbackValue={StaticResource defaultImage}}"/>
+                        <Button Name="btnEnterImage" Content="Выбрать фото" Click="btnEnterImage_Click"/>
+                    </StackPanel>
+
+                    <StackPanel Margin="50 0 0 0">
+                        <TextBlock Text="Описание:"/>
+                        <TextBox Name="txtDescription" Text="{Binding ProductDescription}" Height="100" Width="300" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                    <Button Name="btnDeleteProduct" Content="Удалить материал" Width="200" Visibility="Collapsed" Click="btnDeleteProduct_Click"/>
+                    <Button Name="btnSaveProduct" Content="Сохранить" Width="200" Click="btnSaveProduct_Click"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</Page>
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Navigation;
+using System.Windows.Shapes;
+using AutoserviceRul.Entities;
+using AutoserviceRul.Windows;
+using AutoserviceRul.Pages;
+using Microsoft.Win32;
+
+namespace AutoserviceRul.Pages
+{
+    /// <summary>
+    /// Логика взаимодействия для AddEditProductPage.xaml
+    /// </summary>
+    public partial class AddEditProductPage : Page
+    {
+        Product product = new Product();
+        public AddEditProductPage(Product currentProduct)
+        {
+            InitializeComponent();
+
+            if (currentProduct != null)
+            {
+                product = currentProduct;
+
+                btnDeleteProduct.Visibility = Visibility.Visible;
+                txtArticle.IsEnabled = false;
+            }
+            DataContext =product;
+            cmbCategory.ItemsSource = CategoryList;
+        }
+
+        public string[] CategoryList =
+        {
+            "Аксессуары",
+            "Автозапчасти",
+            "Автосервис",
+            "Съемники подшипников",
+            "Ручные инструменты",
+            "Зарядные устройства"
+        };
+
+        private void btnEnterImage_Click(object sender, RoutedEventArgs e)
+        {
+            OpenFileDialog GetImageDialog = new OpenFileDialog();
+
+            GetImageDialog.Filter = "Файлы изображений: (*.png, *.jpg, *.jpeg)| *.png, *.jpg, *.jpeg";
+            GetImageDialog.InitialDirectory = "C:\\Users\\mobil\\source\\repos\\AutoserviceRul\\AutoserviceRul\\Resources";
+            if (GetImageDialog.ShowDialog() == true)
+            {
+                product.ProductImage = GetImageDialog.SafeFileName;
+            }
+        }
+
+        private void btnDeleteProduct_Click(object sender, RoutedEventArgs e)
+        {
+            if (MessageBox.Show($"Вы действительно хотите удалить {product.ProductName}?", "Вимание", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
+            {
+                try
+                {
+                    RulEntities.GetContext().Product.Remove(product);
+                    RulEntities.GetContext().SaveChanges();
+                    MessageBox.Show("Запись удалена!", "Информация", MessageBoxButton.OK, MessageBoxImage.Information);
+                    NavigationService.GoBack();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message.ToString(), "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+
+        private void btnSaveProduct_Click(object sender, RoutedEventArgs e)
+        {
+            StringBuilder errors = new StringBuilder();
+
+            if (product.ProductCost < 0)
+                errors.AppendLine("Стоимость не может быть отрицательной!");
+            if (product.ProductDiscountAmount > product.MaxDiscountAmount)
+                errors.AppendLine("Действующая скидка на товар не может быть больше максимальной скидки!");
+
+            if (errors.Length > 0)
+            {
+                MessageBox.Show(errors.ToString());
+                return;
+            }
+
+            if (product.ProductArticleNumber == null)
+                RulEntities.GetContext().Product.Add(product);
+            try
+            {
+                RulEntities.GetContext().SaveChanges();
+                MessageBox.Show("Информация сохранена!", "Информация", MessageBoxButton.OK, MessageBoxImage.Information);
+                NavigationService.GoBack();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message.ToString(), "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
+}
+
+База
+namespace AutoserviceRul.Entities
+{
+    using System;
+    using System.Data.Entity;
+    using System.Data.Entity.Infrastructure;
+    
+    public partial class RulEntities : DbContext
+    {
+        public static RulEntities context;
+
+        public RulEntities()
+            : base("name=Entities")
+        {
+        }
+    
+        protected override void OnModelCreating(DbModelBuilder modelBuilder)
+        {
+            throw new UnintentionalCodeFirstException();
+        }
+
+        public static RulEntities GetContext()
+        {
+            if (context == null)
+                context = new RulEntities();
+            return context;
+        }
+    
+        public virtual DbSet<Order> Order { get; set; }
+        public virtual DbSet<OrderProduct> OrderProduct { get; set; }
+        public virtual DbSet<PickupPoint> PickupPoint { get; set; }
+        public virtual DbSet<Product> Product { get; set; }
+        public virtual DbSet<Role> Role { get; set; }
+        public virtual DbSet<sysdiagrams> sysdiagrams { get; set; }
+        public virtual DbSet<User> User { get; set; }
+    }
+}
